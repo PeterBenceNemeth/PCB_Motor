@@ -30,7 +30,7 @@ class Point:
         else:
             self.Alfa = math.atan(y / x)
 
-        self.Radius = math.sqrt(x^2 + y^2)
+        self.Radius = math.sqrt(x**2 + y**2)
 
     def calcCartesian2Polar(self, alfa, radius):
         self.Alfa = alfa
@@ -39,14 +39,17 @@ class Point:
         self.Y = radius * math.sin(alfa)
 
     def distanceFromPoint(self, point):
-        return (self.X - point.X)^2 + (self.Y - point.Y)^2
+        return (self.X - point.X)**2 + (self.Y - point.Y)**2
 
 
     def distanceFromLine(self, line):
-        rectangular_line = line
-        rectangular_line.M = - 1 / (math.atan(line.M)) #M angle ok
-        rectangular_line.calculateOffset(self) #Line equation okay
-        return self.distanceFromPoint(line.twoLineCross(rectangular_line))
+        rectangular_line = Line(line.M, line.C)
+        if line.M == 0:
+            return self.Y - line.C
+        else:
+            rectangular_line.M = - 1 / (math.atan(line.M)) #M angle ok
+            rectangular_line.calculateOffset(self) #Line equation okay
+            return self.distanceFromPoint(line.twoLineCross(rectangular_line))
 
 
 
@@ -59,13 +62,14 @@ class Circle:
         self.EndPoint = end_p
 
     def crossWithLine(self, line):
-        A = line.M^2 + 1
-        B = 2 * line.M * line.C
-        C = line.C ^ 2 + self.Radius
-        if (B ^ 2 - 4 * A * C < 0):
+        A = line.General_A * line.General_C
+        D = self.Radius ** 2 * (line.General_A ** 2 + line.General_B ** 2) - line.General_C ** 2
+        Div = line.General_A ** 2 + line.General_B ** 2
+        B = line.General_B
+        if D < 0:
             print("No solution where circle cross the line")
         else:
-            x = (-B + math.sqrt(B ^ 2 - 4 * A * C)) / (2 * A)
+            x = ( A + B * math.sqrt(D) ) / Div
             y = line.M * x + line.C
 
             self.StartPoint = Point(x, y)
@@ -80,9 +84,9 @@ class Circle:
         tmp_point.calcCartesian2Polar(angle, self.Radius)
 
 
-    def write(self):
+    def write(self, t):
         pcb_content.append(
-            "(gr_arc (start " + self.StartPoint.X + " " + self.StartPoint.Y +") (mid " + self.MidPoint.X + " " + self.MidPoint.Y +") (end " + self.EndPoint.X + " " + self.EndPoint.Y +")\n (stroke (width " + TrackWidth + ") (type default)) (layer \"F.Cu\") )\n"
+            "(gr_arc (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) +") (mid " + str(self.MidPoint.X) + " " + str(self.MidPoint.Y) +") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) +")\n (stroke (width " + str(TrackWidth) + ") (type default)) (layer \"F.Cu\")"+ t.addTimeStamp() +" )\n"
         )
 
 
@@ -90,20 +94,26 @@ class Circle:
 # Create line on which the points of the coil can be
 class Line:
     def __init__(self, m_angle, c_offset, start_p = Point(0,0), end_p = Point(0,0)):
+        # line form y = mx + c
         self.M = m_angle
         self.C = c_offset
         self.StartPoint = start_p
         self.EndPoint = end_p
 
-    def crossWithCircle(self, circle):
-        A = self.M ^ 2 + 1
-        B = 2 * self.M * self.C
-        C = self.C ^ 2 + circle.Radius ^ 2
+        #general form ax + by = c
+        self.General_A = - self.M
+        self.General_B = 1
+        self.General_C = self.C
 
-        if B ^ 2 - 4 * A * C < 0:
+    def crossWithCircle(self, circle):
+        A = self.M ** 2 + 1
+        B = 2 * self.M * self.C
+        C = self.C ** 2 + circle.Radius ** 2
+
+        if B ** 2 - 4 * A * C < 0:
             print("No solution where circle cross the line")
         else:
-            x = (-B + math.sqrt(B ^ 2 - 4 * A * C)) / (2 * A)
+            x = (-B + math.sqrt(B ** 2 - 4 * A * C)) / (2 * A)
             y = self.M * x + self.C
             self.StartPoint = Point(x, y)
             circle.addMidEndPoints(self.StartPoint)
@@ -122,9 +132,9 @@ class Line:
     def paralelShiftLine(self, shift):
         self.C = self.C + shift / math.cos(math.atan(self.M))
 
-    def write(self):
+    def write(self, t):
         pcb_content.append(
-            "(segment (start " + self.StartPoint.X + " " + self.StartPoint.Y + ") (end " + self.EndPoint.X + " " + self.EndPoint.Y + ") (width " + TrackWidth + ") (layer \"F.Cu\") (net 1) )\n"
+            "(segment (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) + ") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) + ") (width " + str(TrackWidth) + ") (layer \"F.Cu\") (net 1) " + t.addTimeStamp() + ")\n"
         )
 
 
@@ -146,13 +156,29 @@ class Coil:
         self.LastAdded = 0 # 1: RightLine; 2: SmallCircle; 3: LeftLine; 4: BigCircle
         self.flagOneStopCriteriaMet = 0 # help decide when to stop
 
-        self.firstObjectAppend(Circle(self.OuterRadius))
+        self.firstRoundCoil()
+
+    def firstRoundCoil(self):
+        right_line = Line(0,0)
+        right_line.paralelShiftLine(calculateTrackClearance()/2)
+        self.firstObjectAppend(right_line)
+
+        small_circle = Circle(self.InnerRadius)
+        self.appendCircle(False, small_circle)
+
+        left_line = Line(math.tan(self.AngleForCoil), 0)
+        left_line.paralelShiftLine(calculateTrackClearance()/2)
+        self.appendLine(False, left_line)
+
+        big_circle = Circle(self.OuterRadius)
+        self.appendCircle(True, big_circle)
 
     def firstObjectAppend(self, right_line):
-        right_line.StartPoint = Point(self.OuterRadius,0)
+        tmp_circle = Circle(self.OuterRadius)
+        right_line.crossWithCircle(tmp_circle)
         self.RightLine.append(right_line)
         self.Objects.append(right_line)
-        self.LastAdded = 4
+        self.LastAdded = 1
 
     def appendLine(self, orientation_right, line):
         if orientation_right:
@@ -177,7 +203,7 @@ class Coil:
                 tmp_line = self.RightLine[-1]
                 # Check if there is place from the previous --LEFT-- line
                 tmp_circle.crossWithLine(tmp_line)
-                if tmp_circle.StartPoint.distanceFromLine(self.LeftLine[-1]) > calculateTrackClearance():# Possible circle start point distance from the previous left line
+                if tmp_circle.StartPoint.distanceFromLine(self.LeftLine[-1]) > calculateTrackClearance(): # Possible circle start point distance from the previous left line
                     self.SpaceForSmallCircle = True
                     return True
                 else:
@@ -185,7 +211,7 @@ class Coil:
                     return False
 
 
-    def checkSpaceForNextBigCircle(self): #TODO
+    def checkSpaceForNextBigCircle(self):
         if len(self.Objects) < 4:
             return True
         else:
@@ -200,7 +226,7 @@ class Coil:
                 else:
                     return False
 
-    def checkSpaceForNextRightLine(self):  # TODO
+    def checkSpaceForNextRightLine(self):
         if len(self.Objects) < 4:
             return True
         else:
@@ -213,7 +239,7 @@ class Coil:
                 return False
 
 
-    def checkSpaceForNextLeftLine(self): #TODO
+    def checkSpaceForNextLeftLine(self):
         if len(self.Objects) < 4:
             return True
         else:
@@ -304,7 +330,7 @@ class Coil:
                 # append Small Circle
                 if len(self.SmallCircle) > 0:
                     #not the first small circle
-                    self.appendCircle(False, Circle(self.SmallCircle[-1]))
+                    self.appendCircle(False, Circle(self.SmallCircle[-1].Radius))
                 else:
                     # First small Circle element
                     self.appendCircle(False, Circle(self.InnerRadius))
@@ -331,7 +357,7 @@ class Coil:
                 # append Big Circle
                 if len(self.BigCircle) > 0:
                     # not the first small circle
-                    self.appendCircle(True, Circle(self.BigCircle[-1]))
+                    self.appendCircle(True, Circle(self.BigCircle[-1].Radius))
                 else:
                     # First small Circle element
                     self.appendCircle(True, Circle(self.OuterRadius))
@@ -351,9 +377,9 @@ class Coil:
                     next_line.paralelShiftLine(calculateTrackClearance() / 2)  # shift with clearance from other coil
                     self.appendLine(True, next_line)
 
-    def writeCoil(self):
+    def writeCoil(self, t):
         for object in self.Objects:
-            object.write()
+            object.write(t)
 
 class PCB_Motor:
     def __init__(self, Phase, NumberOfCoils):
@@ -379,10 +405,21 @@ class PCB_Motor:
             self.Coils[-1].addNextObject()
 
 
+class time:
+    def __init__(self):
+        self.stamp = 79519998
+
+    def addTimeStamp(self):
+        self.stamp += 1
+
+        return "(tstamp 8b7d6d07-02bf-4b76-bfa2-6080"+ str(self.stamp)+")"
+
 def fileKicadSetup():
-    pcb_content.append("(kicad_pcb (version 20221018) (generator pcbnew)\n  (general\n"
-                       "    (thickness 1.6)\n  )\n"
-                       "  (paper \"A4\")\n"
+    pcb_content.append("(kicad_pcb (version 20221018) (generator pcbnew)\n ")
+    pcb_content.append(" (general")
+    pcb_content.append("    (thickness 1.6)")
+    pcb_content.append(")\n")
+    pcb_content.append("  (paper \"A4\")\n"
                        "  (layers\n"
                        "    (0 \"F.Cu\" signal)\n"
                        "    (31 \"B.Cu\" signal)\n"
@@ -455,11 +492,12 @@ def fileKicadSetup():
                        "  (net 1 \"3V3\")\n\n")
 
 Motor = PCB_Motor(3, 12)
+Times = time()
 fileKicadSetup()
 Motor.buildLastAddedCoil()
-Motor.Coils[0].writeCoil()
+Motor.Coils[0].writeCoil(Times)
+
+# Join all elements of pcb_content with newline characters and print
+print("\n".join(pcb_content))
 
 
-
-# Output to a file or print to console
-print(pcb_content)
