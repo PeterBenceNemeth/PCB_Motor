@@ -1,3 +1,4 @@
+import unittest
 import math
 
 
@@ -7,8 +8,8 @@ ElectricalTurnsMultiplier = 2
 NumberOfCoils = 2 * Phase * ElectricalTurnsMultiplier
 
 # PCB parameters
-OuterRadius = 15
-InnerRadius = 5
+OuterRadius = 20
+InnerRadius = 10
 Clearance = 0.2
 TrackWidth = 0.7
 
@@ -25,24 +26,34 @@ class Point:
     def __init__(self, x = 0, y = 0):
         self.X = x
         self.Y = y
-        if x == 0:
-            self.Alfa = math.pi / 2
-        else:
-            self.Alfa = math.atan(y / x)
+        self.calcCartesian2Polar()
 
-        self.Radius = math.sqrt(x**2 + y**2)
-
-    def calcCartesian2Polar(self, alfa, radius):
+    def calcPolar2Cartesian(self, alfa, radius):
         self.Alfa = alfa
         self.Radius = radius
         self.X = radius * math.cos(alfa)
         self.Y = radius * math.sin(alfa)
 
-    def distanceFromPoint(self, point):
-        return (self.X - point.X)**2 + (self.Y - point.Y)**2
+    def calcCartesian2Polar(self):
+        if self.X == 0:
+            if self.Y > 0:
+                self.Alfa = math.pi / 2
+            else:
+                self.Alfa = 3* math.pi / 2
+        else:
+            self.Alfa = math.atan(self.Y / self.X)
 
+        self.Radius = math.sqrt(self.X**2 + self.Y**2)
+
+    def distanceFromPoint(self, point):
+        return math.sqrt((self.X - point.X)**2 + (self.Y - point.Y)**2)
 
     def distanceFromLine(self, line):
+        num = abs(line.General_A * self.X + line.General_B * self.Y + line.General_C)
+        div = math.sqrt(line.General_A**2 + line.General_B**2)
+        return num / div
+
+    def distanceFromLine2(self, line):
         rectangular_line = Line(line.M, line.C)
         if line.M == 0:
             return self.Y - line.C
@@ -51,7 +62,21 @@ class Point:
             rectangular_line.calculateOffset(self) #Line equation okay
             return self.distanceFromPoint(line.twoLineCross(rectangular_line))
 
+    def changeRadius(self, radius):
+        self.Radius = radius
+        self.calcPolar2Cartesian(self.Alfa, self.Radius)
 
+    def changeAlfa(self, alfa):
+        self.Alfa = alfa
+        self.calcPolar2Cartesian(self.Alfa, self.Radius)
+
+    def changeX(self, x):
+        self.X = x
+        self.calcCartesian2Polar()
+
+    def changeY(self, y):
+        self.Y = y
+        self.calcCartesian2Polar()
 
 
 class Circle:
@@ -81,7 +106,8 @@ class Circle:
         self.EndPoint = end_point
         tmp_point = Point()
         angle = ( self.EndPoint.Alfa + self.StartPoint.Alfa ) / 2
-        tmp_point.calcCartesian2Polar(angle, self.Radius)
+        tmp_point.calcPolar2Cartesian(angle, self.Radius)
+        self.MidPoint = tmp_point
 
 
     def write(self, t):
@@ -98,23 +124,40 @@ class Line:
         self.M = m_angle
         self.C = c_offset
         self.StartPoint = start_p
+        if not self.isPointonLine(start_p):
+            self.movePoint2LineAlongY(start_p) # along the y axis move the point to the line to get a correct value
+        self.StartPoint = start_p
+
+        if not self.isPointonLine(end_p):
+            self.movePoint2LineAlongY(end_p) # along the y axis move the point to the line to get a correct value
         self.EndPoint = end_p
 
-        #general form ax + by = c
+        self.updateGeneralForm()
+
+    def isPointonLine(self, point):
+        # line form y = mx + c
+        return point.Y == self.M * point.X + self.C
+
+    def movePoint2LineAlongY(self, point):
+        point.Y = self.M * point.X + self.C
+
+    def updateGeneralForm(self):
+        #general_m form ax + by -c = 0
         self.General_A = - self.M
         self.General_B = 1
-        self.General_C = self.C
+        self.General_C = - self.C
 
     def crossWithCircle(self, circle):
-        A = self.M ** 2 + 1
-        B = 2 * self.M * self.C
-        C = self.C ** 2 + circle.Radius ** 2
-
-        if B ** 2 - 4 * A * C < 0:
+        A = self.General_A * self.General_C
+        D = circle.Radius ** 2 * (self.General_A ** 2 + self.General_B ** 2) - self.General_C ** 2
+        Div = self.General_A ** 2 + self.General_B ** 2
+        B = self.General_B
+        if D < 0:
             print("No solution where circle cross the line")
         else:
-            x = (-B + math.sqrt(B ** 2 - 4 * A * C)) / (2 * A)
+            x = (A + B * math.sqrt(D)) / Div
             y = self.M * x + self.C
+
             self.StartPoint = Point(x, y)
             circle.addMidEndPoints(self.StartPoint)
 
@@ -136,9 +179,6 @@ class Line:
         pcb_content.append(
             "(segment (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) + ") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) + ") (width " + str(TrackWidth) + ") (layer \"F.Cu\") (net 1) " + t.addTimeStamp() + ")\n"
         )
-
-
-
 
 
 class Coil:
@@ -381,6 +421,10 @@ class Coil:
         for object in self.Objects:
             object.write(t)
 
+    def _testWriteFirstObject(self, t, number_of_element):
+        for i in range(number_of_element):
+            self.Objects[i].write(t)
+
 class PCB_Motor:
     def __init__(self, Phase, NumberOfCoils):
         self.Phase = Phase
@@ -407,10 +451,10 @@ class PCB_Motor:
 
 class time:
     def __init__(self):
-        self.stamp = 79519998
+        self.stamp = 79519946
 
     def addTimeStamp(self):
-        self.stamp += 1
+        self.stamp += 6
 
         return "(tstamp 8b7d6d07-02bf-4b76-bfa2-6080"+ str(self.stamp)+")"
 
@@ -491,13 +535,167 @@ def fileKicadSetup():
                        "  (net 0 \"\")\n"
                        "  (net 1 \"3V3\")\n\n")
 
-Motor = PCB_Motor(3, 12)
+Motor = PCB_Motor(3, 6)
 Times = time()
 fileKicadSetup()
 Motor.buildLastAddedCoil()
-Motor.Coils[0].writeCoil(Times)
-
+#Motor.Coils[0].writeCoil(Times)
+Motor.Coils[0]._testWriteFirstObject(Times, 2)
 # Join all elements of pcb_content with newline characters and print
 print("\n".join(pcb_content))
+
+class TestPoint(unittest.TestCase):
+    def test_initialization(self):
+        point = Point(3, 4)
+        self.assertEqual(point.X, 3)
+        self.assertEqual(point.Y, 4)
+        self.assertAlmostEqual(point.Radius, 5)  # 3-4-5 triangle
+        self.assertAlmostEqual(point.Alfa, math.atan2(4, 3))
+
+    def test_calcPolar2Cartesian(self):
+        point = Point()
+        point.calcPolar2Cartesian(math.pi / 4, math.sqrt(2))
+        self.assertAlmostEqual(point.X, 1)
+        self.assertAlmostEqual(point.Y, 1)
+
+    def test_calcCartesian2Polar(self):
+        point = Point(1, 1)
+        point.calcCartesian2Polar()
+        self.assertAlmostEqual(point.Radius, math.sqrt(2))
+        self.assertAlmostEqual(point.Alfa, math.pi / 4)
+
+    def test_distanceFromPoint(self):
+        point1 = Point(0, 0)
+        point2 = Point(3, 4)
+        self.assertAlmostEqual(point1.distanceFromPoint(point2), 5)  # 3-4-5 triangle
+
+    def test_distanceFromLine(self):
+        point = Point(5, 6)
+        line = Line(1, 2, Point(0,2), Point(1,3))  # y = x + 2
+        self.assertAlmostEqual(point.distanceFromLine(line), math.sqrt(2)/2, places=2)  # Should calculate perpendicular distance
+
+    def test_changeRadius(self):
+        point = Point(1, 1)
+        point.changeRadius(5)
+        self.assertAlmostEqual(point.Radius, 5)
+        self.assertAlmostEqual(point.X, 5 / math.sqrt(2))
+        self.assertAlmostEqual(point.Y, 5 / math.sqrt(2))
+
+    def test_changeAlfa(self):
+        point = Point(1, 0)
+        point.changeAlfa(math.pi / 2)
+        self.assertAlmostEqual(point.X, 0)
+        self.assertAlmostEqual(point.Y, 1)
+
+    def test_changeX(self):
+        point = Point(0, 1)
+        point.changeX(1)
+        self.assertEqual(point.X, 1)
+        self.assertAlmostEqual(point.Alfa, math.pi / 4)
+
+    def test_changeY(self):
+        point = Point(1, 0)
+        point.changeY(1)
+        self.assertEqual(point.Y, 1)
+        self.assertAlmostEqual(point.Alfa, math.pi / 4)
+
+
+class TestCircle(unittest.TestCase):
+    def setUp(self):
+        self.radius = 5
+        self.circle = Circle(self.radius)
+
+    def test_initialization(self):
+        self.assertEqual(self.circle.Radius, 5)
+        self.assertEqual(self.circle.StartPoint.X, 0)
+        self.assertEqual(self.circle.StartPoint.Y, 0)
+
+    def test_crossWithLine_no_intersection(self):
+        # Line with no intersection with circle
+        line = Line(1, 1)  # Assuming Line's constructor can handle these params
+        line.General_A = 1
+        line.General_B = -1
+        line.General_C = 10
+        self.circle.crossWithLine(line)
+        # Since no actual change to circle's start point in case of no intersection, check if it remains unchanged
+        self.assertEqual(self.circle.StartPoint.X, 0)
+        self.assertEqual(self.circle.StartPoint.Y, 0)
+
+    def test_crossWithLine_with_intersection(self):
+        # Assuming Line's attributes are set in a way that allows for intersection
+        line = Line(0, 0)
+        line.General_A = 0
+        line.General_B = 1
+        line.General_C = -self.radius / math.sqrt(2)  # This should intersect the circle
+        line.M = 0
+        line.C = self.radius / math.sqrt(2)
+        self.circle.crossWithLine(line)
+        # Check if start point is updated to an intersection point
+        self.assertAlmostEqual(self.circle.StartPoint.X, self.radius / math.sqrt(2), places=2)
+        self.assertAlmostEqual(self.circle.StartPoint.Y, self.radius / math.sqrt(2), places=2)
+
+    def test_addMidEndPoints(self):
+        end_point = Point(5, 0)
+        self.circle.StartPoint = Point(0, -5)  # Set start point opposite to end point
+        self.circle.addMidEndPoints(end_point)
+        self.assertEqual(self.circle.EndPoint, end_point)
+        # Check if mid point is approximately at the circle's top, given the start and end points
+        self.assertAlmostEqual(self.circle.MidPoint.X, -5 / math.sqrt(2), places=2)
+        self.assertAlmostEqual(self.circle.MidPoint.Y, 5 / math.sqrt(2), places=2)
+
+
+class TestLine(unittest.TestCase):
+    def setUp(self):
+        # Setup common test variables
+        self.m_angle = 1
+        self.c_offset = 0
+        self.start_point = Point(0, 0)
+        self.end_point = Point(1, 1)
+        self.line = Line(self.m_angle, self.c_offset, self.start_point, self.end_point)
+
+    def test_line_initialization(self):
+        self.assertEqual(self.line.M, self.m_angle)
+        self.assertEqual(self.line.C, self.c_offset)
+        self.assertEqual(self.line.StartPoint, self.start_point)
+        self.assertEqual(self.line.EndPoint, self.end_point)
+        # Check general form update
+        self.assertEqual(self.line.General_A, -self.m_angle)
+        self.assertEqual(self.line.General_B, 1)
+        self.assertEqual(self.line.General_C, -self.c_offset)
+
+    def test_is_point_on_line(self):
+        on_line_point = Point(1, 1)
+        off_line_point = Point(1, 2)
+        self.assertTrue(self.line.isPointonLine(on_line_point))
+        self.assertFalse(self.line.isPointonLine(off_line_point))
+
+    def test_move_point_to_line_along_y(self):
+        point = Point(1, 2)  # Not on the line y = x
+        self.line.movePoint2LineAlongY(point)
+        self.assertTrue(self.line.isPointonLine(point))
+
+    def test_calculate_offset(self):
+        point_included = Point(2, 2)
+        self.line.calculateOffset(point_included)
+        self.assertEqual(self.line.C, point_included.Y - self.line.M * point_included.X)
+
+    def test_two_line_cross(self):
+        line1 = Line(1, 0)
+        line2 = Line(-1, 0)
+        cross_point = line1.twoLineCross(line2)
+        self.assertEqual(cross_point.X, 0)
+        self.assertEqual(cross_point.Y, 0)
+
+    def test_parallel_shift_line(self):
+        original_c = self.line.C
+        shift = 2
+        self.line.paralelShiftLine(shift)
+        # Depending on how parallel shift is implemented, adjust this test
+        expected_c_shifted = original_c + shift / math.cos(math.atan(self.line.M))
+        self.assertAlmostEqual(self.line.C, expected_c_shifted)
+
+    # Additional tests for `crossWithCircle` and `write` methods might require mocking or setting up more complex scenarios.
+
+
 
 
