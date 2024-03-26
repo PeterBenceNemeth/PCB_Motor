@@ -1,6 +1,8 @@
 import unittest
 import math
-
+import uuid
+import random
+from datetime import datetime
 
 # define Parameters
 Phase = 3
@@ -110,9 +112,9 @@ class Circle:
         self.MidPoint = tmp_point
 
 
-    def write(self, t):
+    def write(self):
         pcb_content.append(
-            "(gr_arc (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) +") (mid " + str(self.MidPoint.X) + " " + str(self.MidPoint.Y) +") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) +")\n (stroke (width " + str(TrackWidth) + ") (type default)) (layer \"F.Cu\")"+ t.addTimeStamp() +" )\n"
+            "(gr_arc (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) +") (mid " + str(self.MidPoint.X) + " " + str(self.MidPoint.Y) +") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) +")\n (stroke (width " + str(TrackWidth) + ") (type default)) (layer \"F.Cu\") (tstamp "+ generate_kicad_uid() +") )\n"
         )
 
 
@@ -175,9 +177,9 @@ class Line:
     def paralelShiftLine(self, shift):
         self.C = self.C + shift / math.cos(math.atan(self.M))
 
-    def write(self, t):
+    def write(self):
         pcb_content.append(
-            "(segment (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) + ") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) + ") (width " + str(TrackWidth) + ") (layer \"F.Cu\") (net 1) " + t.addTimeStamp() + ")\n"
+            "(segment (start " + str(self.StartPoint.X) + " " + str(self.StartPoint.Y) + ") (end " + str(self.EndPoint.X) + " " + str(self.EndPoint.Y) + ") (width " + str(TrackWidth) + ") (layer \"F.Cu\") (net 1) (tstamp " + generate_kicad_uid() + "))\n"
         )
 
 
@@ -417,13 +419,13 @@ class Coil:
                     next_line.paralelShiftLine(calculateTrackClearance() / 2)  # shift with clearance from other coil
                     self.appendLine(True, next_line)
 
-    def writeCoil(self, t):
+    def writeCoil(self):
         for object in self.Objects:
-            object.write(t)
+            object.write()
 
-    def _testWriteFirstObject(self, t, number_of_element):
+    def _testWriteFirstObject(self, number_of_element):
         for i in range(number_of_element):
-            self.Objects[i].write(t)
+            self.Objects[i].write()
 
 class PCB_Motor:
     def __init__(self, Phase, NumberOfCoils):
@@ -449,14 +451,18 @@ class PCB_Motor:
             self.Coils[-1].addNextObject()
 
 
-class time:
-    def __init__(self):
-        self.stamp = 79519946
 
-    def addTimeStamp(self):
-        self.stamp += 6
+def generate_kicad_uid():
+    """
+    Generates a unique identifier (UID) for use in KiCad.
 
-        return "(tstamp 8b7d6d07-02bf-4b76-bfa2-6080"+ str(self.stamp)+")"
+    Returns:
+    str: A unique identifier string based on a universally unique identifier (UUID).
+    """
+    # Generate a UUID
+    unique_id = str(uuid.uuid4())
+
+    return unique_id
 
 def fileKicadSetup():
     pcb_content.append("(kicad_pcb (version 20221018) (generator pcbnew)\n ")
@@ -536,12 +542,13 @@ def fileKicadSetup():
                        "  (net 1 \"3V3\")\n\n")
 
 Motor = PCB_Motor(3, 6)
-Times = time()
+
 fileKicadSetup()
 Motor.buildLastAddedCoil()
 #Motor.Coils[0].writeCoil(Times)
-Motor.Coils[0]._testWriteFirstObject(Times, 2)
+Motor.Coils[0]._testWriteFirstObject(5)
 # Join all elements of pcb_content with newline characters and print
+pcb_content.append("\n)")
 print("\n".join(pcb_content))
 
 class TestPoint(unittest.TestCase):
